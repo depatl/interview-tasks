@@ -1,0 +1,3 @@
+---
+# deploy_nginx.yml
+# Ansible playbook to install Nginx, copy an index.html, and ensure it's running.

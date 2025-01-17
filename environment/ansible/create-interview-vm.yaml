@@ -1,0 +1,76 @@
+---
+- name: Generate SSH keypair and deploy t2.micro Ubuntu instance in AWS
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    # AWS region where you'd like to operate
+    aws_region: "us-east-1"
+    aws_profile: "infra-ops-interview"
+
+    # This should be a valid Ubuntu AMI in your region.
+    # Example for Ubuntu 22.04 in us-east-1. Adjust as needed.
+    ami_id: "ami-08c40ec9ead489470"
+
+    # Customize these paths and key names if desired
+    ssh_key_name: "interview"
+    ssh_private_key_path: "./interview_{{ candidate }}_key"
+    ssh_public_key_path: "./interview_{{ candidate }}_key.pub"
+
+    # Instance specific vars
+    instance_type: "t2.micro"
+    instance_name: "interview-{{ candidate }}"
+    # If you have a default VPC, you can omit subnet_id & security_group, or set them.
+    # Example: "subnet-abc123"
+    subnet_id: "subnet-0fb28f2b3a2d9890c"
+    # Example: "sg-abc123"
+    security_group_id: "sg-05295fd583d434816"
+
+  tasks:
+    - name: Generate a new private key
+      community.crypto.openssl_privatekey:
+        path: "{{ ssh_private_key_path }}"
+        size: 2048
+        type: RSA
+      register: privatekey_result
+
+    - name: Generate the corresponding public key
+      community.crypto.openssl_publickey:
+        path: "{{ ssh_public_key_path }}"
+        privatekey_path: "{{ ssh_private_key_path }}"
+        format: "OpenSSH"
+        force: true
+      register: publickey_result
+
+    - name: Set key material from publickey_result or from file
+      set_fact:
+        key_material: "{{ publickey_result.publickey | default(lookup('file', ssh_public_key_path)) }}"
+
+    - name: Import or create Key Pair in AWS
+      amazon.aws.ec2_key:
+        name: "{{ ssh_key_name }}"
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        key_material: "{{ key_material }}"
+      register: aws_key_result
+
+    - name: Launch a t2.micro Ubuntu instance
+      amazon.aws.ec2_instance:
+        region: "{{ aws_region }}"
+        profile: "{{ aws_profile }}"
+        image_id: "{{ ami_id }}"
+        instance_type: "{{ instance_type }}"
+        key_name: "{{ ssh_key_name }}"
+        name: "{{ instance_name }}"
+        network:
+          # Only include subnet or security group if you need to specify them
+          # for a non-default VPC or custom environment
+          subnet_id: "{{ subnet_id if subnet_id else omit }}"
+          groups: "{{ [security_group_id] if security_group_id else omit }}"
+        wait: true
+        wait_timeout: 500
+      register: ec2_instance_result
+
+    - name: Show instance information
+      debug:
+        var: ec2_instance_result
